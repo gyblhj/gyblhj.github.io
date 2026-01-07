@@ -1,0 +1,211 @@
+<html data-framework="react" data-version="2"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>L&G 日历</title>
+    <base href="https://gw.alipayobjects.com/render/p/yuyan/180023180071760416/">
+    <link href="https://gw.alipayobjects.com/render/p/yuyan/180023180003946312/material-icons.css" rel="stylesheet">
+    <!-- 1. 引入LeanCloud存储和实时通信SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/leancloud-storage@4.15.1/dist/av-min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leancloud-realtime@5.0.0/dist/realtime.browser.min.js"></script>
+    <script>window.injectInfo = { env: "PROD" };</script><script>window.publicPath = "https://gw.alipayobjects.com/render/p/yuyan/180023180071760416/";</script><script defer="" src="base.js"></script>
+    <script type="module" crossorigin="" src="./assets/index-BkNEeIi2.js"></script>
+    <link rel="stylesheet" crossorigin="" href="./assets/index-DRrm5rHV.css">
+  <script>
+    window.artifactId = "flashapp-55277dc0d3a84394";
+    window.artifactVersion = "18";
+    window.trace_id = "2187ff0c17677640815141972e0f4e";
+    
+    // 2. 初始化LeanCloud（已填入你的密钥）
+    AV.init({
+      appId: "0IJIhor6oGbsqcjM53tQF5Zi-gzGzoHsz",
+      appKey: "WGFamGTsp9X6z5wHC7ixTuyM",
+      serverURL: "https://0ijihor6.lc-cn-n1-shared.com"
+    });
+
+    // 3. 全局变量：存储当前选中日期和事项
+    let currentDate = "";
+    let currentEvents = [];
+
+    // 4. 初始化实时通信
+    let conversation = null;
+    const realtime = new AV.Realtime({
+      appId: "0IJIhor6oGbsqcjM53tQF5Zi-gzGzoHsz",
+      region: 'cn'
+    });
+
+    // 5. 初始化日历数据和实时同步
+    window.onload = function() {
+      // 5.1 连接实时通信并加入会话
+      realtime.createIMClient('calendar-user-' + Math.random().toString(36).substr(2, 8))
+        .then(client => {
+          return client.createConversation({
+            name: 'calendarSync',
+            unique: true
+          });
+        })
+        .then(convo => {
+          conversation = convo;
+          // 监听实时消息，同步数据
+          conversation.on('message', message => {
+            if (message.text) {
+              const data = JSON.parse(message.text);
+              updateCalendarUI(data.date, data.events);
+            }
+          });
+        })
+        .catch(error => {
+          console.log('实时通信初始化失败：', error);
+        });
+
+      // 5.2 加载上次保存的日历数据
+      loadCalendarData();
+
+      // 5.3 绑定日期点击事件
+      bindDayClick();
+
+      // 5.4 绑定事项添加按钮事件
+      bindEventButtons();
+    };
+
+    // 6. 加载LeanCloud中保存的日历数据
+    function loadCalendarData() {
+      const query = new AV.Query('CalendarData');
+      query.descending('updatedAt');
+      query.first().then(result => {
+        if (result) {
+          const savedDate = result.get('selectedDate');
+          const savedEvents = result.get('events') || [];
+          updateCalendarUI(savedDate, savedEvents);
+        }
+      }).catch(error => {
+        console.log('读取日历数据失败：', error);
+      });
+    }
+
+    // 7. 保存日历数据到LeanCloud并发送实时同步消息
+    function saveCalendarData(date, events) {
+      const CalendarData = AV.Object.extend('CalendarData');
+      const calendarData = new CalendarData();
+      calendarData.set('selectedDate', date);
+      calendarData.set('events', events);
+      
+      // 保存到云端
+      calendarData.save().then(() => {
+        // 发送实时消息同步给其他人
+        if (conversation) {
+          conversation.send(new AV.TextMessage(JSON.stringify({
+            date: date,
+            events: events
+          }))).catch(error => {
+            console.log('实时消息发送失败：', error);
+          });
+        }
+      }).catch(error => {
+        console.log('保存日历数据失败：', error);
+      });
+    }
+
+    // 8. 更新日历UI（选中日期、显示事项）
+    function updateCalendarUI(date, events) {
+      if (!date) return;
+      
+      // 取消之前选中的日期样式
+      const prevSelected = document.querySelector('.calendar-day.selected');
+      if (prevSelected) {
+        prevSelected.classList.remove('selected');
+      }
+      
+      // 选中新日期
+      const targetDay = document.querySelector(`[data-testid="day-${date.split('/')[2]}"]`);
+      if (targetDay) {
+        targetDay.classList.add('selected');
+      }
+      
+      // 更新当前日期和事项
+      currentDate = date;
+      currentEvents = events || [];
+      
+      // 更新事项列表显示
+      const eventsTitle = document.querySelector('.events-title');
+      const eventsContent = document.querySelector('.empty-events');
+      eventsTitle.textContent = `${date} 的事项 (${currentEvents.length})`;
+      
+      if (currentEvents.length > 0) {
+        eventsContent.innerHTML = currentEvents.map(item => `<div class="event-item">${item}</div>`).join('');
+      } else {
+        eventsContent.textContent = "暂无事项";
+      }
+    }
+
+    // 9. 绑定日期点击事件
+    function bindDayClick() {
+      const dayElements = document.querySelectorAll('.calendar-day[data-testid^="day-"]');
+      dayElements.forEach(day => {
+        day.addEventListener('click', function() {
+          const dayNum = this.getAttribute('data-testid').split('-')[1];
+          currentDate = `2026/01/${dayNum.padStart(2, '0')}`;
+          // 加载该日期的事项并更新UI
+          updateCalendarUI(currentDate, currentEvents);
+          // 保存选中状态
+          saveCalendarData(currentDate, currentEvents);
+        });
+      });
+    }
+
+    // 10. 绑定事项添加按钮事件
+    function bindEventButtons() {
+      const btnSport = document.querySelector('[data-testid="btn-运动"]');
+      const btnPlan = document.querySelector('[data-testid="btn-计划"]');
+      const btnMeet = document.querySelector('[data-testid="btn-见面"]');
+      
+      // 添加运动事项
+      btnSport.addEventListener('click', function() {
+        if (!currentDate) {
+          alert('请先选择日期！');
+          return;
+        }
+        currentEvents.push('运动');
+        updateCalendarUI(currentDate, currentEvents);
+        saveCalendarData(currentDate, currentEvents);
+      });
+      
+      // 添加计划事项
+      btnPlan.addEventListener('click', function() {
+        if (!currentDate) {
+          alert('请先选择日期！');
+          return;
+        }
+        currentEvents.push('计划');
+        updateCalendarUI(currentDate, currentEvents);
+        saveCalendarData(currentDate, currentEvents);
+      });
+      
+      // 添加见面事项
+      btnMeet.addEventListener('click', function() {
+        if (!currentDate) {
+          alert('请先选择日期！');
+          return;
+        }
+        currentEvents.push('见面');
+        updateCalendarUI(currentDate, currentEvents);
+        saveCalendarData(currentDate, currentEvents);
+      });
+    }
+  </script>
+<meta http-equiv="Content-Security-Policy" content="
+  script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: *.alipay.com *.alipayobjects.com  *.amap.com *.lingguang.com *.lingguangcontent.com *.lc-cn-n1-shared.com *.cdn.jsdelivr.net;
+  frame-src 'self' data: blob: *.alipay.com *.alipayobjects.com *.amap.com *.lingguang.com *.lingguangcontent.com;
+  connect-src 'self' data: blob: *.alipay.com *.alipayobjects.com  *.amap.com *.lingguang.com *.lingguangcontent.com *.lc-cn-n1-shared.com;
+  child-src 'self' data: blob: *.alipay.com *.alipayobjects.com *.amap.com *.lingguang.com *.lingguangcontent.com;
+  object-src 'self' data: blob: *.alipay.com *.alipayobjects.com *.amap.com *.lingguang.com *.lingguangcontent.com;
+  base-uri 'self' *.alipay.com *.alipayobjects.com *.amap.com *.lingguang.com *.lingguangcontent.com;
+  form-action 'none';
+  upgrade-insecure-requests;
+">
+
+</head>
+  <body style="align-items: center !important;">
+    <div id="root"><div id="container"><div id="safe-area"></div><div class="header"><h1>L&amp;G日历</h1></div><div class="calendar"><div class="calendar-nav"><button data-testid="prev-month">&lt;</button><h2>2026 01</h2><button data-testid="next-month">&gt;</button></div><div class="calendar-grid"><div class="calendar-day weekday">一</div><div class="calendar-day weekday">二</div><div class="calendar-day weekday">三</div><div class="calendar-day weekday">四</div><div class="calendar-day weekday">五</div><div class="calendar-day weekday">六</div><div class="calendar-day weekday">日</div><div class="calendar-day empty"></div><div class="calendar-day empty"></div><div class="calendar-day empty"></div><div data-testid="day-1" class="calendar-day  ">1</div><div data-testid="day-2" class="calendar-day  ">2</div><div data-testid="day-3" class="calendar-day  ">3</div><div data-testid="day-4" class="calendar-day  ">4</div><div data-testid="day-5" class="calendar-day  ">5</div><div data-testid="day-6" class="calendar-day  ">6</div><div data-testid="day-7" class="calendar-day  today">7</div><div data-testid="day-8" class="calendar-day  ">8</div><div data-testid="day-9" class="calendar-day  ">9</div><div data-testid="day-10" class="calendar-day  ">10</div><div data-testid="day-11" class="calendar-day  ">11</div><div data-testid="day-12" class="calendar-day selected ">12</div><div data-testid="day-13" class="calendar-day  ">13</div><div data-testid="day-14" class="calendar-day  ">14</div><div data-testid="day-15" class="calendar-day  ">15</div><div data-testid="day-16" class="calendar-day  ">16</div><div data-testid="day-17" class="calendar-day  ">17</div><div data-testid="day-18" class="calendar-day  ">18</div><div data-testid="day-19" class="calendar-day  ">19</div><div data-testid="day-20" class="calendar-day  ">21</div><div data-testid="day-21" class="calendar-day  ">21</div><div data-testid="day-22" class="calendar-day  ">22</div><div data-testid="day-23" class="calendar-day  ">23</div><div data-testid="day-24" class="calendar-day  ">24</div><div data-testid="day-25" class="calendar-day  ">25</div><div data-testid="day-26" class="calendar-day  ">26</div><div data-testid="day-27" class="calendar-day  ">27</div><div data-testid="day-28" class="calendar-day  ">28</div><div data-testid="day-29" class="calendar-day  ">29</div><div data-testid="day-30" class="calendar-day  ">30</div><div data-testid="day-31" class="calendar-day  ">31</div></div></div><div class="buttons"><button data-testid="btn-运动" class="btn">＋运动</button><button data-testid="btn-计划" class="btn">＋计划</button><button data-testid="btn-见面" class="btn">＋见面</button></div><div class="events"><h3 class="events-title">2026/01/12 的事项 (0)</h3><div class="empty-events">暂无事项</div></div><div class="html-editor-toggle"><button data-testid="html-editor-toggle" class="html-editor-toggle-btn">查看HTML代码</button></div></div></div>
+  
+
+</body></html>
